@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Data & checkpoints
+data/*
+!data/.gitkeep
+!data/README.md
+checkpoints/
+*.pt
+*.bin
+*.safetensors
+
+# Misc
+.DS_Store
+.env
