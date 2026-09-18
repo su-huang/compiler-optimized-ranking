@@ -15,4 +15,4 @@ learning_rate: 2e-5
 num_epochs: 3
 seed: 42
 
-output_dir: checkpoints/phase1
+output_dir: checkpoints/distilbert-ranker-full-3ep

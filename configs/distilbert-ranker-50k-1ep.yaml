@@ -1,5 +1,5 @@
 # Fast first-pass config — subsampled data, 1 epoch, for a quick real (non-smoke) result
-# before committing to the full run in phase1.yaml.
+# before committing to the full run in distilbert-ranker-full-3ep.yaml.
 model_name: distilbert-base-uncased
 num_labels: 2
 max_length: 256
@@ -17,4 +17,4 @@ learning_rate: 2e-5
 num_epochs: 1
 seed: 42
 
-output_dir: checkpoints/phase1_fast
+output_dir: checkpoints/distilbert-ranker-50k-1ep

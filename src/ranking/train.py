@@ -14,9 +14,9 @@ from src.ranking.model import load_model_and_tokenizer
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, default=Path("configs/phase1.yaml"))
+    parser.add_argument("--config", type=Path, default=Path("configs/distilbert-ranker-full-3ep.yaml"))
     parser.add_argument("--data-dir", type=Path, default=Path("data/pairs"))
-    parser.add_argument("--output-dir", type=Path, default=Path("checkpoints/phase1"))
+    parser.add_argument("--output-dir", type=Path, default=Path("checkpoints/distilbert-ranker-full-3ep"))
     return parser.parse_args()
 
 

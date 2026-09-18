@@ -7,3 +7,6 @@ scipy
 pandas
 pyyaml
 duckdb
+fastapi
+uvicorn
+locust
