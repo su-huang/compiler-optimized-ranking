@@ -1,0 +1,20 @@
+# Fast first-pass config — subsampled data, 1 epoch, for a quick real (non-smoke) result
+# before committing to the full run in phase1.yaml.
+model_name: distilbert-base-uncased
+num_labels: 2
+max_length: 256
+
+max_pairs_per_user: 20
+train_frac: 0.8
+val_frac: 0.1
+
+max_train_samples: 50000
+max_eval_samples: 5000
+
+batch_size: 16
+eval_batch_size: 32
+learning_rate: 2e-5
+num_epochs: 1
+seed: 42
+
+output_dir: checkpoints/phase1_fast

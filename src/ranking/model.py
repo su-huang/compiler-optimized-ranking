@@ -1,6 +1,11 @@
 """Model loading for the pairwise ranking cross-encoder."""
 
-from transformers import PreTrainedModel, PreTrainedTokenizerBase
+from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
+)
 
 
 def load_model_and_tokenizer(
@@ -8,4 +13,6 @@ def load_model_and_tokenizer(
     num_labels: int = 2,
 ) -> "tuple[PreTrainedModel, PreTrainedTokenizerBase]":
     """Load AutoModelForSequenceClassification + AutoTokenizer for the cross-encoder ranker."""
-    raise NotImplementedError
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=num_labels)
+    return model, tokenizer

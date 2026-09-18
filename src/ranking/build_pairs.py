@@ -27,20 +27,26 @@ def register_raw_reviews(con: duckdb.DuckDBPyConnection, reviews_path: Path) -> 
     con.execute(f"CREATE OR REPLACE VIEW reviews AS SELECT * FROM read_json_auto('{reviews_path}')")
 
 
-def build_pairs_table(
+def sample_reviews_table(
     con: duckdb.DuckDBPyConnection,
     min_reviews_per_user: int = 2,
-    max_pairs_per_user: int = 20,
     max_reviews_per_user: int = 30,
 ) -> None:
-    """Run sql/build_pairs.sql to group by user_id, generate non-tied pairs, and cap/sample per user."""
+    """Run sql/sample_reviews.sql to filter to eligible users and cap reviews per user."""
+    con.execute(
+        f"CREATE OR REPLACE TABLE sampled_reviews AS {load_sql('sample_reviews')}",
+        {"min_reviews_per_user": min_reviews_per_user, "max_reviews_per_user": max_reviews_per_user},
+    )
+
+
+def build_pairs_table(
+    con: duckdb.DuckDBPyConnection,
+    max_pairs_per_user: int = 20,
+) -> None:
+    """Run sql/build_pairs.sql to self-join sampled_reviews into non-tied, capped-per-user pairs."""
     con.execute(
         f"CREATE OR REPLACE TABLE pairs AS {load_sql('build_pairs')}",
-        {
-            "min_reviews_per_user": min_reviews_per_user,
-            "max_pairs_per_user": max_pairs_per_user,
-            "max_reviews_per_user": max_reviews_per_user,
-        },
+        {"max_pairs_per_user": max_pairs_per_user},
     )
 
 
@@ -73,6 +79,28 @@ def export_splits(con: duckdb.DuckDBPyConnection, out_dir: Path) -> None:
         )
 
 
+def export_reviews_splits(con: duckdb.DuckDBPyConnection, out_dir: Path) -> None:
+    """COPY sampled_reviews (joined to user_splits) out to out_dir/{train,val,test}_reviews.jsonl.
+
+    Unlike export_splits, this is review-level (not pair-level): one row per
+    (user_id, text, stars), needed to compute per-user Kendall's tau between
+    predicted and true review rankings via metrics.kendall_tau_by_user.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for split in ("train", "val", "test"):
+        out_path = out_dir / f"{split}_reviews.jsonl"
+        con.execute(
+            f"""
+            COPY (
+                SELECT r.user_id, r.text, r.stars
+                FROM sampled_reviews r
+                JOIN user_splits s ON s.user_id = r.user_id
+                WHERE s.split = '{split}'
+            ) TO '{out_path}' (FORMAT JSON)
+            """
+        )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--raw-dir", type=Path, default=Path("data/raw"))
@@ -97,9 +125,11 @@ def main() -> None:
 
     con = get_connection(args.db_path)
     register_raw_reviews(con, args.raw_dir / "yelp_academic_dataset_review.json")
-    build_pairs_table(con, args.min_reviews_per_user, args.max_pairs_per_user, args.max_reviews_per_user)
+    sample_reviews_table(con, args.min_reviews_per_user, args.max_reviews_per_user)
+    build_pairs_table(con, args.max_pairs_per_user)
     split_by_user(con, args.train_frac, args.val_frac)
     export_splits(con, args.out_dir)
+    export_reviews_splits(con, args.out_dir)
 
 
 if __name__ == "__main__":
