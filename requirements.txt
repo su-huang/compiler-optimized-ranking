@@ -10,3 +10,4 @@ duckdb
 fastapi
 uvicorn
 locust
+apache-tvm
