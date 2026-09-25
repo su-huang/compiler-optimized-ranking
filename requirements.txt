@@ -12,3 +12,5 @@ uvicorn
 locust
 apache-tvm
 torchao
+httpx
+matplotlib
