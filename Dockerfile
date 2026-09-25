@@ -2,8 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-serving.txt .
+# CPU-only wheel index: the default PyPI torch wheel for linux/aarch64 pulls in
+# multiple GB of NVIDIA CUDA libraries (nvidia_cudnn_cu13 alone is 650MB+) even
+# though this cluster is CPU-only -- pure dead weight without the CPU-only index.
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-serving.txt
 
 COPY src/ src/
 COPY checkpoints/ checkpoints/

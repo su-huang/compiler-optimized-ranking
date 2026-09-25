@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ranking-api
+  labels:
+    app: ranking-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ranking-api
+  template:
+    metadata:
+      labels:
+        app: ranking-api
+    spec:
+      containers:
+        - name: ranking-api
+          image: ranking-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ranking-api
+  labels:
+    app: ranking-api
+spec:
+  selector:
+    app: ranking-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  type: ClusterIP

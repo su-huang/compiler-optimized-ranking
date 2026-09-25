@@ -46,6 +46,12 @@ class AdaptiveBatcher:
         if self._worker_task is not None:
             self._worker_task.cancel()
 
+    @property
+    def queue_depth(self) -> int:
+        """Requests currently waiting to be batched -- exported as a Prometheus gauge
+        for the Phase 6 queue-depth-driven Horizontal Pod Autoscaler."""
+        return self._queue.qsize()
+
     async def submit(self, item: Any) -> Any:
         future: asyncio.Future = asyncio.get_event_loop().create_future()
         await self._queue.put(_PendingRequest(item=item, future=future))

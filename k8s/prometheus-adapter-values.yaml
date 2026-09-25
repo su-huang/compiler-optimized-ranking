@@ -1,0 +1,16 @@
+prometheus:
+  url: http://prometheus-kube-prometheus-prometheus.default.svc
+  port: 9090
+
+rules:
+  default: false
+  custom:
+    - seriesQuery: 'batcher_queue_depth{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace: { resource: "namespace" }
+          pod: { resource: "pod" }
+      name:
+        matches: "^batcher_queue_depth$"
+        as: "queue_depth"
+      metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'

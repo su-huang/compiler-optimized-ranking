@@ -14,7 +14,8 @@ import time
 from contextlib import asynccontextmanager
 
 import torch
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
@@ -29,6 +30,11 @@ CANARY_TRAFFIC_FRACTION = float(os.environ.get("CANARY_TRAFFIC_FRACTION", "0.05"
 # For demoing automatic rollback: forces this fraction of canary requests to fail
 # outright, simulating a broken deployment. 0.0 in normal operation.
 CANARY_CHAOS_FAILURE_RATE = float(os.environ.get("CANARY_CHAOS_FAILURE_RATE", "0.0"))
+
+REQUEST_COUNT = Counter("predict_requests_total", "Total /predict requests", ["served_by"])
+ERROR_COUNT = Counter("predict_errors_total", "Total /predict errors")
+LATENCY_HISTOGRAM = Histogram("predict_latency_seconds", "Latency of /predict requests")
+QUEUE_DEPTH_GAUGE = Gauge("batcher_queue_depth", "Requests waiting to be batched", ["batcher"])
 
 model_state: dict = {}
 # AdaptiveBatcher now runs predict_fn via asyncio.to_thread (so the event loop isn't
@@ -119,6 +125,14 @@ def health() -> dict:
     return {"status": "ok" if model_state.get("ready") else "loading"}
 
 
+@app.get("/metrics")
+def metrics() -> Response:
+    if model_state.get("ready"):
+        QUEUE_DEPTH_GAUGE.labels(batcher="stable").set(model_state["stable_batcher"].queue_depth)
+        QUEUE_DEPTH_GAUGE.labels(batcher="canary").set(model_state["canary_batcher"].queue_depth)
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.get("/canary/status")
 def canary_status() -> dict:
     return model_state["canary_router"].status()
@@ -134,6 +148,7 @@ def canary_reset() -> dict:
 async def predict(request: PredictRequest) -> PredictResponse:
     router: CanaryRouter = model_state["canary_router"]
     use_canary = router.should_route_to_canary()
+    request_start = time.perf_counter()
 
     if use_canary:
         start = time.perf_counter()
@@ -143,11 +158,16 @@ async def predict(request: PredictRequest) -> PredictResponse:
             preferred, confidence = await model_state["canary_batcher"].submit((request.text_a, request.text_b))
             latency_ms = (time.perf_counter() - start) * 1000
             router.record_canary_result(success=True, latency_ms=latency_ms)
+            REQUEST_COUNT.labels(served_by="canary").inc()
+            LATENCY_HISTOGRAM.observe(time.perf_counter() - request_start)
             return PredictResponse(preferred=preferred, confidence=confidence, served_by="canary")
         except Exception:
             latency_ms = (time.perf_counter() - start) * 1000
             router.record_canary_result(success=False, latency_ms=latency_ms)
+            ERROR_COUNT.inc()
             # fall through to stable so the caller still gets a real answer
 
     preferred, confidence = await model_state["stable_batcher"].submit((request.text_a, request.text_b))
+    REQUEST_COUNT.labels(served_by="stable").inc()
+    LATENCY_HISTOGRAM.observe(time.perf_counter() - request_start)
     return PredictResponse(preferred=preferred, confidence=confidence, served_by="stable")
