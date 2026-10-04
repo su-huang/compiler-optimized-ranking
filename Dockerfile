@@ -2,6 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# torch.compile's Inductor CPU backend generates and compiles C++ at runtime for
+# the fused kernels -- python:3.11-slim has no compiler by default, and without
+# one COMPILE_MODEL=true fails at startup (InvalidCxxCompiler), not at import time.
+RUN apt-get update && apt-get install -y --no-install-recommends g++ && rm -rf /var/lib/apt/lists/*
+
 COPY requirements-serving.txt .
 # CPU-only wheel index: the default PyPI torch wheel for linux/aarch64 pulls in
 # multiple GB of NVIDIA CUDA libraries (nvidia_cudnn_cu13 alone is 650MB+) even

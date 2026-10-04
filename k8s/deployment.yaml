@@ -21,23 +21,31 @@ spec:
           ports:
             - containerPort: 8000
           resources:
+            # torch.compile's Inductor backend spins up a C++ compile at startup on
+            # top of two loaded models (stable + canary) -- the original 1Gi limit
+            # (sized before COMPILE_MODEL existed) OOMKilled the pod (exit 137)
+            # during warmup. Bumped after observing the actual failure, not guessed.
             requests:
-              cpu: "250m"
-              memory: "512Mi"
-            limits:
-              cpu: "1"
+              cpu: "500m"
               memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          # torch.compile warmup (COMPILE_MODEL=true by default) runs during FastAPI's
+          # lifespan startup, before the app accepts any connections -- took ~9s
+          # locally, can be longer under the 250m CPU request below, so probes get
+          # extra initial delay rather than generating startup noise/restarts.
           readinessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
             periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 10
 ---
 apiVersion: v1

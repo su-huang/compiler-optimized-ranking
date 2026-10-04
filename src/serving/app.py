@@ -1,9 +1,14 @@
 """FastAPI serving layer for the pairwise ranking cross-encoder.
 
 Phase 2: baseline eager-mode single-instance serving.
+Phase 3: the stable model is wrapped with torch.compile (see COMPILE_MODEL
+below) -- the 2.5x speedup benchmarked in scripts/benchmark_compile.py is now
+what's actually served, not just a number in a benchmark script.
 Phase 5: adaptive request batching + canary routing with automatic rollback.
-Compiler optimizations (torch.compile/TVM) and quantization land in earlier
-benchmark scripts (Phase 3/4) but aren't wired into this service by default.
+Quantization (Phase 4) isn't wired in by default: benchmark_quantize.py found
+it doesn't pay off on this Apple Silicon hardware, so there's nothing to gain
+from serving it -- CANARY_MODEL_DIR can still point at a quantized checkpoint
+if you want to canary-test one.
 """
 
 import logging
@@ -30,6 +35,10 @@ CANARY_TRAFFIC_FRACTION = float(os.environ.get("CANARY_TRAFFIC_FRACTION", "0.05"
 # For demoing automatic rollback: forces this fraction of canary requests to fail
 # outright, simulating a broken deployment. 0.0 in normal operation.
 CANARY_CHAOS_FAILURE_RATE = float(os.environ.get("CANARY_CHAOS_FAILURE_RATE", "0.0"))
+# dynamic=True avoids a recompilation per distinct (batch_size, seq_len) pair --
+# adaptive batching means both vary request to request, and torch.compile's default
+# static-shape specialization would otherwise recompile on nearly every batch.
+COMPILE_MODEL = os.environ.get("COMPILE_MODEL", "true").lower() == "true"
 
 REQUEST_COUNT = Counter("predict_requests_total", "Total /predict requests", ["served_by"])
 ERROR_COUNT = Counter("predict_errors_total", "Total /predict errors")
@@ -45,12 +54,23 @@ model_state: dict = {}
 inference_lock = threading.Lock()
 
 
-def _load_model(model_dir: str, device: torch.device):
+def _load_model(model_dir: str, device: torch.device, compile_model: bool = False):
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
     model = AutoModelForSequenceClassification.from_pretrained(model_dir)
     model.to(device)
     model.eval()
+    if compile_model:
+        model = torch.compile(model, dynamic=True)
     return model, tokenizer
+
+
+def _warmup(model, tokenizer, device) -> None:
+    """Trigger torch.compile's first-call compilation now, at two different batch
+    sizes, so the dynamic-shape path is established before real traffic arrives
+    instead of the first production requests paying the compile cost."""
+    for batch_size in (1, 4):
+        pairs = [("warmup text a", "warmup text b")] * batch_size
+        _predict_batch(pairs, model, tokenizer, device)
 
 
 def _predict_batch(pairs: list[tuple[str, str]], model, tokenizer, device) -> list[tuple[str, float]]:
@@ -82,8 +102,13 @@ def _predict_batch(pairs: list[tuple[str, str]], model, tokenizer, device) -> li
 async def lifespan(app: FastAPI):
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
-    stable_model, stable_tokenizer = _load_model(STABLE_MODEL_DIR, device)
+    stable_model, stable_tokenizer = _load_model(STABLE_MODEL_DIR, device, compile_model=COMPILE_MODEL)
     canary_model, canary_tokenizer = _load_model(CANARY_MODEL_DIR, device)
+
+    if COMPILE_MODEL:
+        logging.info("warming up compiled stable model...")
+        _warmup(stable_model, stable_tokenizer, device)
+        logging.info("stable model warmup complete")
 
     stable_batcher = AdaptiveBatcher(
         predict_fn=lambda pairs: _predict_batch(pairs, stable_model, stable_tokenizer, device)
